@@ -78,6 +78,59 @@ Each simulated device:
 | `--asset-budget-mb` | `200` | Per-device asset cache budget |
 | `--fake-asset-duration-sec` | `10` | Simulated playback duration for loop-count schedules |
 | `--keep-state` | `false` | Don't delete per-device state on exit |
+| `--control-host` | `127.0.0.1` | Bind address for the HTTP fault-injection API |
+| `--control-port` | `9090` | Port for the fault-injection API (`0` disables) |
+
+## Fault injection (control plane)
+
+Each sim process exposes an HTTP API for mutating per-device state at runtime —
+so you can exercise CMS alert rules (overheating, low storage, offline, etc.)
+without real hardware.
+
+```bash
+# See every device's current state
+curl http://127.0.0.1:9090/devices
+
+# Jack up a device's CPU temp (CMS overheat alert fires)
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -H 'Content-Type: application/json' \
+     -d '{"cpu_temp": 88.5}'
+
+# Simulate a full disk
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -d '{"storage_mb_free": 50}'
+
+# Force a device offline for 5 minutes (closes WS, blocks reconnect)
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/offline \
+     -d '{"duration_sec": 300}'
+
+# Fail the next 3 asset downloads
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -d '{"asset_fetch_fail_count": 3}'
+
+# Stop sending heartbeats (socket stays open — tests stale-device detection)
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -d '{"heartbeat_stalled": true}'
+
+# Clear all faults on a device
+curl -X DELETE http://127.0.0.1:9090/devices/sim-00007/fault
+
+# Fleet-wide: take everyone offline (network partition sim)
+curl -X POST http://127.0.0.1:9090/fleet/offline -d '{"duration_sec": 60}'
+
+# Fleet-wide: apply a fault to every device
+curl -X POST http://127.0.0.1:9090/fleet/fault -d '{"cpu_temp": 85}'
+```
+
+| Route | Purpose |
+|---|---|
+| `GET  /devices` | List all devices + current fault state |
+| `GET  /devices/{serial}` | Single device state |
+| `POST /devices/{serial}/fault` | Merge fault dict (partial updates allowed) |
+| `DELETE /devices/{serial}/fault` | Clear all faults on a device |
+| `POST /devices/{serial}/offline` | `{duration_sec}` — force offline |
+| `POST /fleet/offline` | Same, but all devices |
+| `POST /fleet/fault` | Broadcast a fault dict to all devices |
 
 ## Status
 
@@ -85,6 +138,7 @@ Each simulated device:
 - [x] Hardware/probe shims, ContextVar-based profile isolation
 - [x] Real asset download + SHA-256 verification (reused from `cms_client`)
 - [x] Multi-instance launcher with ramp-rate
+- [x] Runtime fault injection HTTP API (#1)
 - [ ] YAML scenario loader
 - [ ] Virtual clock / fast-forward ("run a week in an hour")
 

@@ -28,6 +28,8 @@ class Launcher:
         asset_budget_mb: int = 200,
         fake_asset_duration_sec: float = 10.0,
         cleanup_on_stop: bool = True,
+        control_host: str = "127.0.0.1",
+        control_port: int = 9090,
     ) -> None:
         self.count = count
         self.cms_url = cms_url
@@ -38,8 +40,11 @@ class Launcher:
         self.asset_budget_mb = asset_budget_mb
         self.fake_asset_duration_sec = fake_asset_duration_sec
         self.cleanup_on_stop = cleanup_on_stop
+        self.control_host = control_host
+        self.control_port = control_port
         self._instances: list[DeviceInstance] = []
         self._tasks: list[asyncio.Task] = []
+        self._control_runner = None
 
     def _build_profile(self, i: int) -> DeviceProfile:
         serial = f"{self.serial_prefix}-{i:05d}"
@@ -52,6 +57,11 @@ class Launcher:
 
     async def run(self) -> None:
         delay = 1.0 / self.ramp_rate_per_sec if self.ramp_rate_per_sec > 0 else 0
+
+        if self.control_port > 0:
+            from sim.control import start_control_plane
+            self._control_runner = await start_control_plane(
+                self.control_host, self.control_port)
 
         for i in range(self.count):
             profile = self._build_profile(i)
@@ -92,6 +102,12 @@ class Launcher:
 
     async def stop(self) -> None:
         logger.info("Stopping launcher")
+        if self._control_runner is not None:
+            try:
+                await self._control_runner.cleanup()
+            except Exception:
+                logger.debug("Error cleaning up control plane", exc_info=True)
+            self._control_runner = None
         for t in self._tasks:
             if not t.done():
                 t.cancel()

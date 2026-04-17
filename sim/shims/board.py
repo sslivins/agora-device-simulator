@@ -79,6 +79,9 @@ def hdmi_port_count() -> int:
 
 
 def supported_codecs() -> list[str]:
+    fault = current_profile().fault
+    if fault.codecs is not None:
+        return list(fault.codecs)
     return list(_cfg()["codecs"])
 
 
@@ -103,4 +106,7 @@ def alsa_card() -> str:
 
 
 def get_cpu_temp() -> float | None:
-    return current_profile().cpu_temp_c
+    prof = current_profile()
+    if prof.fault.cpu_temp is not None:
+        return prof.fault.cpu_temp
+    return prof.cpu_temp_c

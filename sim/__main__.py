@@ -47,6 +47,10 @@ from sim.launcher import Launcher  # noqa: E402
               help="Per-device asset budget in MB (controls eviction).")
 @click.option("--fake-duration", type=float, default=10.0, show_default=True,
               help="Fake asset playback duration in seconds (for loop-count sims).")
+@click.option("--control-host", default="127.0.0.1", show_default=True,
+              help="Bind address for the HTTP control plane.")
+@click.option("--control-port", type=int, default=9090, show_default=True,
+              help="Port for the HTTP fault-injection control plane (0 disables).")
 @click.option("--keep-state/--cleanup-state", default=False,
               help="Keep per-device state dirs after shutdown (useful for debugging).")
 @click.option("--log-level", default="INFO", show_default=True,
@@ -60,6 +64,8 @@ def main(
     persist_root: Path,
     asset_budget_mb: int,
     fake_duration: float,
+    control_host: str,
+    control_port: int,
     keep_state: bool,
     log_level: str,
 ) -> None:
@@ -80,6 +86,8 @@ def main(
         asset_budget_mb=asset_budget_mb,
         fake_asset_duration_sec=fake_duration,
         cleanup_on_stop=not keep_state,
+        control_host=control_host,
+        control_port=control_port,
     )
 
     loop = asyncio.new_event_loop()

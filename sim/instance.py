@@ -11,6 +11,10 @@ from sim.shims import DeviceProfile, set_profile
 
 logger = logging.getLogger("agora_sim.instance")
 
+# Module-level registry: serial -> DeviceInstance. Populated on run(), removed
+# on stop(). Used by the control-plane HTTP API to look up devices.
+INSTANCES: dict[str, "DeviceInstance"] = {}
+
 
 class DeviceInstance:
     """One simulated Agora device."""
@@ -59,6 +63,7 @@ class DeviceInstance:
         )
         self._client = CMSClient(settings)
 
+        INSTANCES[self.profile.serial] = self
         logger.info("[%s] starting (agora_base=%s, cms=%s)",
                     self.profile.serial, self.agora_base, self.cms_url)
 
@@ -78,7 +83,20 @@ class DeviceInstance:
         finally:
             await self.stop()
 
+    async def set_offline(self, duration_sec: float) -> None:
+        """Force this device offline: close WS and block reconnect for N sec."""
+        loop = asyncio.get_event_loop()
+        self.profile.fault.offline_until = loop.time() + duration_sec
+        ws = getattr(self._client, "_ws", None)
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception:
+                logger.debug("[%s] error closing ws for offline fault",
+                             self.profile.serial, exc_info=True)
+
     async def stop(self) -> None:
+        INSTANCES.pop(self.profile.serial, None)
         if self._fake_player:
             self._fake_player.stop()
         if self._client:
