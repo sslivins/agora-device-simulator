@@ -129,8 +129,24 @@ curl -X POST http://127.0.0.1:9090/fleet/fault -d '{"cpu_temp": 85}'
 | `POST /devices/{serial}/fault` | Merge fault dict (partial updates allowed) |
 | `DELETE /devices/{serial}/fault` | Clear all faults on a device |
 | `POST /devices/{serial}/offline` | `{duration_sec}` — force offline |
+| `GET  /devices/{serial}/recording` | Inbound WS commands + counters + last config values |
+| `DELETE /devices/{serial}/recording` | Clear recorded commands + counters (per-test isolation) |
+| `GET  /devices/{serial}/now-playing` | Current playback state (asset, loops, started_at) |
 | `POST /fleet/offline` | Same, but all devices |
 | `POST /fleet/fault` | Broadcast a fault dict to all devices |
+
+### Inspection example (used by the nightly E2E suite)
+
+```bash
+# Reset recording before the UI action
+curl -X DELETE http://127.0.0.1:9090/devices/sim-00007/recording
+
+# Playwright clicks "Reboot" in the CMS UI, which triggers a WS message...
+
+# Assert the device received a reboot command
+curl http://127.0.0.1:9090/devices/sim-00007/recording
+# -> {"count": 1, "counters": {"reboot": 1}, "last_config": {}, "commands": [{"type": "reboot", ...}]}
+```
 
 ## Status
 

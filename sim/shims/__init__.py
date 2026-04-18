@@ -6,7 +6,18 @@ configured through `DeviceProfile` values stored in a ContextVar so that many
 simulated devices can coexist in the same process.
 """
 
-from sim.shims.profile import DeviceProfile, current_profile, set_profile
+from sim.shims.profile import (
+    CommandRecorder,
+    DeviceProfile,
+    current_profile,
+    set_profile,
+)
 from sim.shims.installer import apply_shims
 
-__all__ = ["DeviceProfile", "apply_shims", "current_profile", "set_profile"]
+__all__ = [
+    "CommandRecorder",
+    "DeviceProfile",
+    "apply_shims",
+    "current_profile",
+    "set_profile",
+]
