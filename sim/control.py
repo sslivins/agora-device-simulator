@@ -17,6 +17,23 @@ from sim.instance import INSTANCES
 logger = logging.getLogger("agora_sim.control")
 
 
+def _now_playing(inst) -> dict | None:
+    """Read current playback state from the FakePlayer, if any."""
+    fp = getattr(inst, "_fake_player", None)
+    if fp is None:
+        return None
+    asset = getattr(fp, "_current_asset", None)
+    if not asset:
+        return None
+    started = getattr(fp, "_play_started_at", None)
+    return {
+        "asset": asset,
+        "loop_count": getattr(fp, "_current_loop_count", None),
+        "loops_done": getattr(fp, "_loops_done", 0),
+        "started_at": started.isoformat() if started is not None else None,
+    }
+
+
 def _device_snapshot(serial: str, inst) -> dict:
     loop = asyncio.get_event_loop()
     fault_dict = inst.profile.fault.to_dict()
@@ -46,6 +63,8 @@ def _device_snapshot(serial: str, inst) -> dict:
         "cms_url": inst.cms_url,
         "ws_open": ws_open,
         "fault": fault_dict,
+        "recording": inst.profile.recorder.to_dict(),
+        "now_playing": _now_playing(inst),
     }
 
 
@@ -165,6 +184,32 @@ async def _fleet_fault(request: web.Request) -> web.Response:
     return web.json_response({"affected": affected, "fault": body})
 
 
+async def _get_recording(request: web.Request) -> web.Response:
+    serial = request.match_info["serial"]
+    inst = INSTANCES.get(serial)
+    if inst is None:
+        return web.json_response({"error": "not_found", "serial": serial}, status=404)
+    return web.json_response(inst.profile.recorder.to_dict())
+
+
+async def _reset_recording(request: web.Request) -> web.Response:
+    serial = request.match_info["serial"]
+    inst = INSTANCES.get(serial)
+    if inst is None:
+        return web.json_response({"error": "not_found", "serial": serial}, status=404)
+    inst.profile.recorder.reset()
+    logger.info("[%s] recording reset", serial)
+    return web.json_response(inst.profile.recorder.to_dict())
+
+
+async def _get_now_playing(request: web.Request) -> web.Response:
+    serial = request.match_info["serial"]
+    inst = INSTANCES.get(serial)
+    if inst is None:
+        return web.json_response({"error": "not_found", "serial": serial}, status=404)
+    return web.json_response({"serial": serial, "now_playing": _now_playing(inst)})
+
+
 async def _index(request: web.Request) -> web.Response:
     return web.json_response({
         "service": "agora-device-simulator control plane",
@@ -176,6 +221,9 @@ async def _index(request: web.Request) -> web.Response:
             "POST   /devices/{serial}/fault",
             "DELETE /devices/{serial}/fault",
             "POST   /devices/{serial}/offline",
+            "GET    /devices/{serial}/recording",
+            "DELETE /devices/{serial}/recording",
+            "GET    /devices/{serial}/now-playing",
             "POST   /fleet/offline",
             "POST   /fleet/fault",
         ],
@@ -190,6 +238,9 @@ def build_app() -> web.Application:
     app.router.add_post("/devices/{serial}/fault", _set_fault)
     app.router.add_delete("/devices/{serial}/fault", _clear_fault)
     app.router.add_post("/devices/{serial}/offline", _set_offline)
+    app.router.add_get("/devices/{serial}/recording", _get_recording)
+    app.router.add_delete("/devices/{serial}/recording", _reset_recording)
+    app.router.add_get("/devices/{serial}/now-playing", _get_now_playing)
     app.router.add_post("/fleet/offline", _fleet_offline)
     app.router.add_post("/fleet/fault", _fleet_fault)
     return app

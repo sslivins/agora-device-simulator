@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import contextvars
 import tempfile
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Deque, Dict, Optional
 
 _DEFAULT_PERSIST_ROOT = Path(tempfile.gettempdir()) / "agora-sim"
 
@@ -50,6 +52,52 @@ class FaultState:
         self.heartbeat_stalled = False
 
 
+RECORDER_MAX_COMMANDS = 100
+
+
+@dataclass
+class CommandRecorder:
+    """In-memory record of WS commands received by a simulated device.
+
+    Populated by the recording shim (see sim.shims.installer) each time the
+    CMS dispatches a message to the device. Tests query this via the control
+    plane to assert round-trips (e.g. "clicking Reboot in the UI caused the
+    device to receive a reboot command"), without touching production code.
+    """
+
+    commands: Deque[Dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=RECORDER_MAX_COMMANDS)
+    )
+    counters: Dict[str, int] = field(default_factory=dict)
+    last_config: Dict[str, Any] = field(default_factory=dict)
+
+    def record(self, msg_type: str, payload: Dict[str, Any]) -> None:
+        self.commands.append({
+            "type": msg_type,
+            "payload": payload,
+            "ts": time.time(),
+        })
+        self.counters[msg_type] = self.counters.get(msg_type, 0) + 1
+        if msg_type == "config":
+            for k, v in payload.items():
+                if k == "type":
+                    continue
+                self.last_config[k] = v
+
+    def reset(self) -> None:
+        self.commands.clear()
+        self.counters.clear()
+        self.last_config.clear()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "count": len(self.commands),
+            "counters": dict(self.counters),
+            "last_config": dict(self.last_config),
+            "commands": list(self.commands),
+        }
+
+
 @dataclass
 class DeviceProfile:
     """Configuration for a single simulated device."""
@@ -64,6 +112,7 @@ class DeviceProfile:
     ssh_enabled: bool = False
     persist_root: Path = field(default_factory=lambda: _DEFAULT_PERSIST_ROOT)
     fault: FaultState = field(default_factory=FaultState)
+    recorder: CommandRecorder = field(default_factory=CommandRecorder)
 
 
 _CURRENT_PROFILE: contextvars.ContextVar[DeviceProfile | None] = contextvars.ContextVar(

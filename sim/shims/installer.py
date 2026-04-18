@@ -41,8 +41,61 @@ def apply_shims() -> None:
     cms_service.CMSClient._apply_timezone = lambda self, tz_name: None
 
     _install_fault_hooks(cms_service, current_profile)
+    _install_recording_hooks(cms_service, current_profile)
 
     _APPLIED = True
+
+
+_RECORDED_HANDLERS = (
+    ("_handle_auth_assigned", "auth_assigned", True),
+    ("_handle_sync", "sync", True),
+    ("_handle_play", "play", True),
+    ("_handle_stop", "stop", False),
+    ("_handle_fetch_asset", "fetch_asset", True),
+    ("_handle_delete_asset", "delete_asset", True),
+    ("_handle_config", "config", True),
+    ("_handle_reboot", "reboot", False),
+    ("_handle_upgrade", "upgrade", False),
+    ("_handle_factory_reset", "factory_reset", False),
+    ("_handle_wipe_assets", "wipe_assets", True),
+    ("_handle_request_logs", "request_logs", True),
+)
+
+
+def _install_recording_hooks(cms_service, current_profile) -> None:
+    """Wrap every CMS->device handler to log inbound commands for test assertions.
+
+    Recording is per-device (via the current_profile ContextVar). If the shim
+    is invoked outside a simulator context (no bound profile), we no-op and
+    delegate straight through to the original handler.
+    """
+    CMSClient = cms_service.CMSClient
+
+    def _record(msg_type: str, payload: dict) -> None:
+        try:
+            recorder = current_profile().recorder
+        except RuntimeError:
+            return
+        recorder.record(msg_type, payload)
+
+    for attr, msg_type, takes_msg in _RECORDED_HANDLERS:
+        orig = getattr(CMSClient, attr, None)
+        if orig is None:
+            continue
+        if takes_msg:
+            def _make(orig_fn, t):
+                async def wrapper(self, msg, *args, **kwargs):
+                    _record(t, msg if isinstance(msg, dict) else {"_raw": str(msg)})
+                    return await orig_fn(self, msg, *args, **kwargs)
+                return wrapper
+            setattr(CMSClient, attr, _make(orig, msg_type))
+        else:
+            def _make_no_msg(orig_fn, t):
+                async def wrapper(self, *args, **kwargs):
+                    _record(t, {})
+                    return await orig_fn(self, *args, **kwargs)
+                return wrapper
+            setattr(CMSClient, attr, _make_no_msg(orig, msg_type))
 
 
 def _install_fault_hooks(cms_service, current_profile) -> None:
