@@ -60,6 +60,7 @@ class DeviceInstance:
             desired_path=settings.desired_state_path,
             current_path=settings.current_state_path,
             fake_asset_duration_sec=self.fake_asset_duration_sec,
+            profile=self.profile,
         )
         self._client = CMSClient(settings)
 

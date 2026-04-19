@@ -99,3 +99,61 @@ async def test_recording_404_on_unknown_device(client):
     c, _ = client
     resp = await c.get("/devices/NOPE/recording")
     assert resp.status == 404
+
+
+# ── display fault injection (display_connected / display_ports) ────────────
+
+
+async def test_set_display_disconnected_fault(client):
+    c, inst = client
+    resp = await c.post(
+        "/devices/SIM-REC-1/fault", json={"display_connected": False}
+    )
+    body = await resp.json()
+    assert resp.status == 200
+    assert body["fault"]["display_connected"] is False
+    assert inst.profile.fault.display_connected is False
+
+
+async def test_set_display_ports_fault(client):
+    c, inst = client
+    resp = await c.post(
+        "/devices/SIM-REC-1/fault",
+        json={"display_ports": ["HDMI-A-1", "HDMI-A-2"]},
+    )
+    body = await resp.json()
+    assert resp.status == 200
+    assert body["fault"]["display_ports"] == ["HDMI-A-1", "HDMI-A-2"]
+    assert inst.profile.fault.display_ports == ["HDMI-A-1", "HDMI-A-2"]
+
+
+async def test_clear_resets_display_fields(client):
+    c, inst = client
+    inst.profile.fault.display_connected = False
+    inst.profile.fault.display_ports = ["HDMI-A-1"]
+    resp = await c.delete("/devices/SIM-REC-1/fault")
+    body = await resp.json()
+    assert body["fault"]["display_connected"] is None
+    assert body["fault"]["display_ports"] is None
+    assert inst.profile.fault.display_connected is None
+    assert inst.profile.fault.display_ports is None
+
+
+async def test_display_ports_must_be_list_of_strings(client):
+    c, _ = client
+    resp = await c.post(
+        "/devices/SIM-REC-1/fault", json={"display_ports": "HDMI-A-1"}
+    )
+    assert resp.status == 400
+    body = await resp.json()
+    assert "display_ports" in body["detail"]
+
+
+async def test_snapshot_exposes_display_fault_fields(client):
+    c, inst = client
+    inst.profile.fault.display_connected = False
+    resp = await c.get("/devices/SIM-REC-1")
+    body = await resp.json()
+    assert "display_connected" in body["fault"]
+    assert "display_ports" in body["fault"]
+    assert body["fault"]["display_connected"] is False

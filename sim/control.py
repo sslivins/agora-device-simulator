@@ -103,6 +103,17 @@ def _apply_fault_dict(fault, body: dict[str, Any]) -> None:
         fault.asset_fetch_fail_count = int(body["asset_fetch_fail_count"])
     if "heartbeat_stalled" in body:
         fault.heartbeat_stalled = bool(body["heartbeat_stalled"])
+    if "display_connected" in body:
+        v = body["display_connected"]
+        fault.display_connected = None if v is None else bool(v)
+    if "display_ports" in body:
+        v = body["display_ports"]
+        if v is None:
+            fault.display_ports = None
+        elif isinstance(v, list) and all(isinstance(x, str) for x in v):
+            fault.display_ports = list(v)
+        else:
+            raise ValueError("display_ports must be a list of strings or null")
 
 
 async def _set_fault(request: web.Request) -> web.Response:

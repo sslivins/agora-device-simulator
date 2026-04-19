@@ -112,6 +112,19 @@ curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
 curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
      -d '{"heartbeat_stalled": true}'
 
+# Simulate the HDMI display being unplugged (CMS display-disconnect alert
+# fires after the configured grace period — default 120s)
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -d '{"display_connected": false}'
+
+# ...and plugged back in
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -d '{"display_connected": true}'
+
+# Override the reported HDMI port list (defaults to ["HDMI-A-1"])
+curl -X POST http://127.0.0.1:9090/devices/sim-00007/fault \
+     -d '{"display_ports": ["HDMI-A-1", "HDMI-A-2"]}'
+
 # Clear all faults on a device
 curl -X DELETE http://127.0.0.1:9090/devices/sim-00007/fault
 
