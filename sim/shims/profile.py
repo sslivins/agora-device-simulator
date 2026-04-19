@@ -32,6 +32,12 @@ class FaultState:
     offline_until: Optional[float] = None  # asyncio loop time
     asset_fetch_fail_count: int = 0
     heartbeat_stalled: bool = False
+    # Display state — None means "use real default" (connected, single HDMI port).
+    # Setting display_connected=False causes the FakePlayer to write
+    # display_connected=False into current.json, which the real cms_client then
+    # reports up to the CMS, exercising display-disconnect alert paths.
+    display_connected: Optional[bool] = None
+    display_ports: Optional[list[str]] = None
 
     def to_dict(self) -> dict:
         return {
@@ -41,6 +47,10 @@ class FaultState:
             "offline_until": self.offline_until,
             "asset_fetch_fail_count": self.asset_fetch_fail_count,
             "heartbeat_stalled": self.heartbeat_stalled,
+            "display_connected": self.display_connected,
+            "display_ports": (
+                list(self.display_ports) if self.display_ports is not None else None
+            ),
         }
 
     def clear(self) -> None:
@@ -50,6 +60,8 @@ class FaultState:
         self.offline_until = None
         self.asset_fetch_fail_count = 0
         self.heartbeat_stalled = False
+        self.display_connected = None
+        self.display_ports = None
 
 
 RECORDER_MAX_COMMANDS = 100
