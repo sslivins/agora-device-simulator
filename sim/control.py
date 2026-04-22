@@ -47,14 +47,36 @@ def _device_snapshot(serial: str, inst) -> dict:
     try:
         ws = getattr(inst._client, "_ws", None)
         if ws is not None:
-            # websockets lib: .state is a State enum (CONNECTING/OPEN/CLOSING/CLOSED)
-            state = getattr(ws, "state", None)
-            if state is not None:
-                ws_open = getattr(state, "name", "") == "OPEN"
-            elif hasattr(ws, "open"):
-                ws_open = bool(ws.open)
-            elif hasattr(ws, "closed"):
-                ws_open = not bool(ws.closed)
+            # Since agora#127, inst._client._ws is a transport wrapper
+            # (DirectTransport / WPSTransport) with an internal _closed flag
+            # and the raw websocket stored on ._ws. Unwrap it so ws_open
+            # reflects the underlying connection state rather than always
+            # being False (the wrapper has no .state/.open/.closed).
+            if hasattr(ws, "_closed") and hasattr(ws, "_ws"):
+                if ws._closed:
+                    ws_open = False
+                else:
+                    inner = ws._ws
+                    state = getattr(inner, "state", None)
+                    if state is not None:
+                        ws_open = getattr(state, "name", "") == "OPEN"
+                    elif hasattr(inner, "open"):
+                        ws_open = bool(inner.open)
+                    elif hasattr(inner, "closed"):
+                        ws_open = not bool(inner.closed)
+                    else:
+                        # wrapper not closed and underlying ws shape unknown — trust the wrapper.
+                        ws_open = True
+            else:
+                # Raw websocket (pre-#127 behaviour / direct assignment).
+                # websockets lib: .state is a State enum (CONNECTING/OPEN/CLOSING/CLOSED)
+                state = getattr(ws, "state", None)
+                if state is not None:
+                    ws_open = getattr(state, "name", "") == "OPEN"
+                elif hasattr(ws, "open"):
+                    ws_open = bool(ws.open)
+                elif hasattr(ws, "closed"):
+                    ws_open = not bool(ws.closed)
     except Exception:
         pass
     return {

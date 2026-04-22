@@ -157,3 +157,71 @@ async def test_snapshot_exposes_display_fault_fields(client):
     assert "display_connected" in body["fault"]
     assert "display_ports" in body["fault"]
     assert body["fault"]["display_connected"] is False
+
+
+class _FakeWsState:
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _FakeRawWs:
+    """Pre-#127 shape: raw websockets library object with .state enum."""
+    def __init__(self, state_name: str = "OPEN"):
+        self.state = _FakeWsState(state_name)
+
+
+class _FakeTransport:
+    """Post-#127 shape: wrapper with _closed bool and inner _ws."""
+    def __init__(self, closed: bool = False, inner_state: str = "OPEN"):
+        self._closed = closed
+        self._ws = _FakeRawWs(inner_state)
+
+
+class _FakeClient:
+    def __init__(self, ws):
+        self._ws = ws
+
+
+async def test_ws_open_reads_raw_websocket_state(client):
+    c, inst = client
+    inst._client = _FakeClient(_FakeRawWs("OPEN"))
+    resp = await c.get("/devices/SIM-REC-1")
+    body = await resp.json()
+    assert body["ws_open"] is True
+
+
+async def test_ws_open_raw_websocket_closed(client):
+    c, inst = client
+    inst._client = _FakeClient(_FakeRawWs("CLOSED"))
+    resp = await c.get("/devices/SIM-REC-1")
+    body = await resp.json()
+    assert body["ws_open"] is False
+
+
+async def test_ws_open_unwraps_transport_wrapper(client):
+    """Regression: since agora#127 _client._ws is a transport wrapper.
+
+    The snapshot must unwrap it to reach the underlying websocket's .state,
+    otherwise ws_open is always False and smoke tests wedge.
+    """
+    c, inst = client
+    inst._client = _FakeClient(_FakeTransport(closed=False, inner_state="OPEN"))
+    resp = await c.get("/devices/SIM-REC-1")
+    body = await resp.json()
+    assert body["ws_open"] is True
+
+
+async def test_ws_open_transport_wrapper_closed(client):
+    c, inst = client
+    inst._client = _FakeClient(_FakeTransport(closed=True, inner_state="OPEN"))
+    resp = await c.get("/devices/SIM-REC-1")
+    body = await resp.json()
+    assert body["ws_open"] is False
+
+
+async def test_ws_open_transport_wrapper_inner_closed(client):
+    c, inst = client
+    inst._client = _FakeClient(_FakeTransport(closed=False, inner_state="CLOSED"))
+    resp = await c.get("/devices/SIM-REC-1")
+    body = await resp.json()
+    assert body["ws_open"] is False
