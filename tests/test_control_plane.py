@@ -225,3 +225,82 @@ async def test_ws_open_transport_wrapper_inner_closed(client):
     resp = await c.get("/devices/SIM-REC-1")
     body = await resp.json()
     assert body["ws_open"] is False
+
+
+# ── logs_synth control plane ────────────────────────────────────────────
+
+
+async def test_set_logs_synth_accepts_int_and_str(client):
+    c, inst = client
+    resp = await c.post(
+        "/devices/SIM-REC-1/logs",
+        json={"agora-player": 4096, "agora-api": "literal-text"},
+    )
+    assert resp.status == 200
+    body = await resp.json()
+    # Response should NOT echo the literal payload back (avoids huge bodies);
+    # only a compact summary.
+    assert body["serial"] == "SIM-REC-1"
+    summary = body["logs_synth"]
+    assert summary["agora-player"] == ["int", 4096]
+    assert summary["agora-api"] == ["str", len("literal-text")]
+    # Profile actually mutated.
+    assert inst.profile.logs_synth == {
+        "agora-player": 4096, "agora-api": "literal-text",
+    }
+
+
+async def test_set_logs_synth_rejects_bool(client):
+    c, _ = client
+    resp = await c.post("/devices/SIM-REC-1/logs", json={"svc": True})
+    assert resp.status == 400
+    body = await resp.json()
+    assert body["error"] == "invalid_field"
+    assert "bool" in body["detail"].lower()
+
+
+async def test_set_logs_synth_rejects_negative(client):
+    c, _ = client
+    resp = await c.post("/devices/SIM-REC-1/logs", json={"svc": -1})
+    assert resp.status == 400
+    body = await resp.json()
+    assert body["error"] == "invalid_field"
+
+
+async def test_set_logs_synth_rejects_oversize(client):
+    c, _ = client
+    resp = await c.post(
+        "/devices/SIM-REC-1/logs", json={"svc": 26 * 1024 * 1024},
+    )
+    assert resp.status == 400
+
+
+async def test_set_logs_synth_rejects_empty_body(client):
+    c, _ = client
+    resp = await c.post("/devices/SIM-REC-1/logs", json={})
+    assert resp.status == 400
+
+
+async def test_clear_logs_synth(client):
+    c, inst = client
+    inst.profile.logs_synth = {"svc": 1024}
+    resp = await c.delete("/devices/SIM-REC-1/logs")
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["logs_synth"] is None
+    assert inst.profile.logs_synth is None
+
+
+async def test_logs_synth_unknown_serial(client):
+    c, _ = client
+    resp = await c.post("/devices/UNKNOWN/logs", json={"svc": 1024})
+    assert resp.status == 404
+
+
+async def test_index_lists_logs_routes(client):
+    c, _ = client
+    resp = await c.get("/")
+    body = await resp.json()
+    assert "POST   /devices/{serial}/logs" in body["routes"]
+    assert "DELETE /devices/{serial}/logs" in body["routes"]
+

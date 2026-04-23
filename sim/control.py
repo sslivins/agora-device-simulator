@@ -243,6 +243,83 @@ async def _get_now_playing(request: web.Request) -> web.Response:
     return web.json_response({"serial": serial, "now_playing": _now_playing(inst)})
 
 
+_LOGS_SYNTH_MAX_BYTES = 25 * 1024 * 1024  # 25 MiB per service hard ceiling
+
+
+def _validate_logs_synth_body(body: Any) -> dict[str, Any]:
+    """Validate and normalize a POST /devices/{serial}/logs payload.
+
+    Returns the normalized dict on success; raises ValueError otherwise.
+    Each value must be either ``int >= 0`` (bytes of synthetic content)
+    or ``str``. Booleans (which Python treats as int) are rejected.
+    """
+    if not isinstance(body, dict) or not body:
+        raise ValueError("body must be a non-empty JSON object of {service: int|str}")
+    out: dict[str, Any] = {}
+    for k, v in body.items():
+        if not isinstance(k, str) or not k:
+            raise ValueError(f"service key must be a non-empty string, got {k!r}")
+        if isinstance(v, bool) or not isinstance(v, (int, str)):
+            raise ValueError(
+                f"logs_synth[{k!r}] must be int (bytes) or str, got {type(v).__name__}"
+            )
+        if isinstance(v, int):
+            if v < 0:
+                raise ValueError(f"logs_synth[{k!r}] must be >= 0, got {v}")
+            if v > _LOGS_SYNTH_MAX_BYTES:
+                raise ValueError(
+                    f"logs_synth[{k!r}] {v} exceeds {_LOGS_SYNTH_MAX_BYTES}-byte cap"
+                )
+        out[k] = v
+    return out
+
+
+def _logs_synth_summary(synth: dict[str, Any] | None) -> dict | None:
+    """Compact summary suitable for control-plane responses.
+
+    Avoids echoing potentially-multi-MB literal log strings back to the
+    test runner; just reports per-service mode and size.
+    """
+    if not synth:
+        return None
+    return {
+        s: ("int", v) if isinstance(v, int) and not isinstance(v, bool)
+        else ("str", len(v) if isinstance(v, str) else None)
+        for s, v in synth.items()
+    }
+
+
+async def _set_logs_synth(request: web.Request) -> web.Response:
+    serial = request.match_info["serial"]
+    inst = INSTANCES.get(serial)
+    if inst is None:
+        return web.json_response({"error": "not_found", "serial": serial}, status=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid_json"}, status=400)
+    try:
+        normalized = _validate_logs_synth_body(body)
+    except ValueError as e:
+        return web.json_response({"error": "invalid_field", "detail": str(e)}, status=400)
+    inst.profile.logs_synth = normalized
+    logger.info("[%s] logs_synth set: %s", serial, _logs_synth_summary(normalized))
+    return web.json_response({
+        "serial": serial,
+        "logs_synth": _logs_synth_summary(normalized),
+    })
+
+
+async def _clear_logs_synth(request: web.Request) -> web.Response:
+    serial = request.match_info["serial"]
+    inst = INSTANCES.get(serial)
+    if inst is None:
+        return web.json_response({"error": "not_found", "serial": serial}, status=404)
+    inst.profile.logs_synth = None
+    logger.info("[%s] logs_synth cleared", serial)
+    return web.json_response({"serial": serial, "logs_synth": None})
+
+
 async def _index(request: web.Request) -> web.Response:
     return web.json_response({
         "service": "agora-device-simulator control plane",
@@ -257,6 +334,8 @@ async def _index(request: web.Request) -> web.Response:
             "GET    /devices/{serial}/recording",
             "DELETE /devices/{serial}/recording",
             "GET    /devices/{serial}/now-playing",
+            "POST   /devices/{serial}/logs",
+            "DELETE /devices/{serial}/logs",
             "POST   /fleet/offline",
             "POST   /fleet/fault",
         ],
@@ -274,6 +353,8 @@ def build_app() -> web.Application:
     app.router.add_get("/devices/{serial}/recording", _get_recording)
     app.router.add_delete("/devices/{serial}/recording", _reset_recording)
     app.router.add_get("/devices/{serial}/now-playing", _get_now_playing)
+    app.router.add_post("/devices/{serial}/logs", _set_logs_synth)
+    app.router.add_delete("/devices/{serial}/logs", _clear_logs_synth)
     app.router.add_post("/fleet/offline", _fleet_offline)
     app.router.add_post("/fleet/fault", _fleet_fault)
     return app

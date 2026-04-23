@@ -145,6 +145,8 @@ curl -X POST http://127.0.0.1:9090/fleet/fault -d '{"cpu_temp": 85}'
 | `GET  /devices/{serial}/recording` | Inbound WS commands + counters + last config values |
 | `DELETE /devices/{serial}/recording` | Clear recorded commands + counters (per-test isolation) |
 | `GET  /devices/{serial}/now-playing` | Current playback state (asset, loops, started_at) |
+| `POST /devices/{serial}/logs` | Configure synthetic journalctl output for `request_logs` smoke tests. Body: `{"<service>": <int_bytes_or_str_text>, ...}`. Each value is either an `int` (synthesize that many bytes of ASCII filler — useful for sizing payloads against the firmware's `LOGS_JSON_MAX_BYTES` threshold) or a `str` (literal log text). Booleans, negatives, and >25 MiB per service are rejected. |
+| `DELETE /devices/{serial}/logs` | Clear the synthetic logs config; subsequent `request_logs` commands fall back to the (failing) real `journalctl` shell-out. |
 | `POST /fleet/offline` | Same, but all devices |
 | `POST /fleet/fault` | Broadcast a fault dict to all devices |
 
