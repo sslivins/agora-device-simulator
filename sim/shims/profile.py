@@ -125,6 +125,15 @@ class DeviceProfile:
     persist_root: Path = field(default_factory=lambda: _DEFAULT_PERSIST_ROOT)
     fault: FaultState = field(default_factory=FaultState)
     recorder: CommandRecorder = field(default_factory=CommandRecorder)
+    # Per-service synthesized log content for ``request_logs`` smoke tests.
+    # ``None`` (default) → no synthesis: real subprocess.run runs and
+    # journalctl is reported missing as before. When set, the sim shim
+    # intercepts ``journalctl`` shell-outs inside ``_handle_request_logs``
+    # and returns the configured payload instead, so we can exercise both
+    # firmware success branches (small JSON over WS, and large HTTP upload).
+    # Each value: ``int`` → that many bytes of ASCII filler;
+    #             ``str`` → literal text content.
+    logs_synth: Optional[Dict[str, Any]] = None
 
 
 _CURRENT_PROFILE: contextvars.ContextVar[DeviceProfile | None] = contextvars.ContextVar(
